@@ -11,9 +11,6 @@
   <meta name="apple-mobile-web-app-title" content="StreamFlix" />
   <link rel="apple-touch-icon" href="https://img.icons8.com/fluency/192/play-button-circled.png" />
 
-  <!-- Suporte a HLS / Canais Ao Vivo -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
   <style>
     :root {
       --bg-dark: #0d0f15;
@@ -280,7 +277,6 @@
   <script>
     let bancoDados = { canais: [], filmes: [], series: [] };
     let abaAtual = 'canais';
-    let hlsInstance = null;
     const player = document.getElementById('videoPlayer');
 
     // Exemplos iniciais para teste imediato
@@ -293,7 +289,6 @@
     window.onload = () => {
       const urlSalva = localStorage.getItem('m3u_url');
       if (urlSalva) {
-        document.getElementById('m3uUrlInput').value = urlSalva;
         carregarM3U(urlSalva);
       } else {
         popularDados(listaPadrao);
@@ -347,16 +342,8 @@
     }
 
     function tocarMidia(url, nome) {
-      if (Hls.isSupported() && url.includes('.m3u8')) {
-        if (hlsInstance) hlsInstance.destroy();
-        hlsInstance = new Hls();
-        hlsInstance.loadSource(url);
-        hlsInstance.attachMedia(player);
-        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => player.play());
-      } else {
-        player.src = url;
-        player.play().catch(err => console.log('Aguardando interação para reproduzir.'));
-      }
+      player.src = url;
+      player.play();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -373,24 +360,7 @@
 
     async function carregarM3U(url) {
       try {
-        let resp;
-
-        // 1. Tenta carregar pela Netlify Function
-        try {
-          resp = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
-        } catch (e) {
-          resp = null;
-        }
-
-        // 2. Se a Netlify Function não responder, usa o proxy de contingência
-        if (!resp || !resp.ok) {
-          resp = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-        }
-
-        if (!resp || !resp.ok) {
-          throw new Error('Falha na requisição');
-        }
-
+        const resp = await fetch(url);
         const texto = await resp.text();
         const linhas = texto.split('\n');
         let itens = [];
@@ -399,37 +369,29 @@
         for (let linha of linhas) {
           linha = linha.trim();
           if (linha.startsWith('#EXTINF:')) {
-            const partes = linha.split(',');
-            const nome = partes.length > 1 ? partes.slice(1).join(',') : "Sem Nome";
+            const nome = linha.split(',')[1] || "Sem Nome";
             const logoMatch = linha.match(/tvg-logo="([^"]+)"/);
             const groupMatch = linha.match(/group-title="([^"]+)"/);
             const grupo = (groupMatch ? groupMatch[1] : '').toLowerCase();
 
             let tipo = 'canais';
-            if (grupo.includes('filme') || grupo.includes('movie') || grupo.includes('vod')) tipo = 'filmes';
-            if (grupo.includes('serie') || grupo.includes('series')) tipo = 'series';
+            if (grupo.includes('filme') || grupo.includes('movie')) tipo = 'filmes';
+            if (grupo.includes('serie')) tipo = 'series';
 
             itemAtual = {
-              nome: nome.trim(),
+              nome: nome,
               logo: logoMatch ? logoMatch[1] : '',
               tipo: tipo
             };
-          } else if (linha && !linha.startsWith('#') && itemAtual) {
+          } else if (linha.startsWith('http') && itemAtual) {
             itemAtual.url = linha;
             itens.push(itemAtual);
             itemAtual = null;
           }
         }
-
-        if (itens.length === 0) {
-          alert('Lista carregada, mas nenhum canal/filme válido foi encontrado.');
-          return;
-        }
-
         popularDados(itens);
       } catch (e) {
-        console.error(e);
-        alert('Não foi possível carregar a lista. Verifique se o link está correto ou tente novamente.');
+        alert('Não foi possível carregar a lista diretamente (bloqueio CORS do servidor).');
       }
     }
   </script>
